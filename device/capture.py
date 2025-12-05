@@ -132,7 +132,7 @@ class TrustCam:
         )
         return signature
     
-    def create_metadata(self, signature):
+    def create_metadata(self, signature, image_hash):
         """
         Create metadata dictionary for the signed image.
         
@@ -153,6 +153,8 @@ class TrustCam:
             "public_key": public_key_pem,
             "signature_algorithm": "ECDSA-P256",
             "curve": "SECP256R1",
+            "image_hash_type": "SHA256",
+            "image_hash": image_hash,
         }
         
         return metadata
@@ -183,7 +185,8 @@ class TrustCam:
             
             # get metadata with signature info
             metadata = self.create_metadata(
-                signature, 
+                signature=signature, 
+                image_hash=image_hash
             )
 
             # save metadata and hash to exif 

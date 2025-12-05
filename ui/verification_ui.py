@@ -5,29 +5,27 @@ A complete PySide6 application for verifying signed images from security cameras
 """
 
 import json
-import subprocess
 import sys
 import secrets
-import random
-from pathlib import Path
 from io import BytesIO
 import cv2
 from PIL import Image
 from pyzbar import pyzbar
 import rawpy
+import exifread
+import numpy as np
 
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QLineEdit, QTextEdit, QFileDialog, QSplitter
 )
 from PySide6.QtGui import QPixmap, QImage
-from PySide6.QtCore import Qt, QSize
+from PySide6.QtCore import Qt, QSize, Signal
 
 from PIL import Image
 import qrcode
 import hashlib
 import sys
-from pathlib import Path
 from PIL import Image
 from PIL import PngImagePlugin
 from cryptography.hazmat.primitives import hashes, serialization
@@ -38,33 +36,36 @@ from cryptography.exceptions import InvalidSignature
 class DragDropImageLabel(QLabel):
     """Custom QLabel that accepts drag and drop of image files."""
     
+    # Define a signal that sends the file path string when a file is dropped
+    fileDropped = Signal(str)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAcceptDrops(True)
-        self.parent_window = parent
     
     def dragEnterEvent(self, event):
-        """Accept drag events with file URLs."""
         if event.mimeData().hasUrls():
-            # Check if at least one URL is a file
             for url in event.mimeData().urls():
                 if url.isLocalFile():
                     event.acceptProposedAction()
                     return
     
     def dragMoveEvent(self, event):
-        """Accept drag move events."""
         if event.mimeData().hasUrls():
-            event.acceptProposedAction()
-    
+            for url in event.mimeData().urls():
+                if url.isLocalFile():
+                    event.acceptProposedAction()
+                    return
+
     def dropEvent(self, event):
-        """Handle dropped files."""
         if event.mimeData().hasUrls():
             urls = event.mimeData().urls()
             if urls and urls[0].isLocalFile():
+                # Get the path using toLocalFile()
                 filepath = urls[0].toLocalFile()
-                if self.parent_window:
-                    self.parent_window.handle_chosen_image(filepath)
+                
+                # Emit the signal instead of calling parent method directly
+                self.fileDropped.emit(filepath)
                 event.acceptProposedAction()
 
 
@@ -79,8 +80,7 @@ class VerificationUI(QMainWindow):
         # Global state variables
         self.current_image_path = None
         self.authentication_token = None
-        self.camera_public_key = None
-        self.is_camera_authorized = False
+        self.camera_public_key = "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEvaDQZk2HOx9lPgz09rwkUM17YvX2\nz2OeAbeeYnks6CUAzBWBWdbSb9VJxGhWXUPZH+1guvbIonm0c0UJZLXtgA==\n-----END PUBLIC KEY-----\n" #None
         self.qr_pixmap = None
         
         # Initialize UI
@@ -103,8 +103,10 @@ class VerificationUI(QMainWindow):
         # Left column (4/5 width) - Image display area
         left_widget = QWidget()
         left_layout = QVBoxLayout(left_widget)
-        
+
         self.image_label = DragDropImageLabel(self)
+        self.image_label.fileDropped.connect(self.handle_chosen_image)
+        
         self.image_label.setText("Drop image here or click 'Select Image'")
         self.image_label.setAlignment(Qt.AlignCenter)
         self.image_label.setStyleSheet("""
@@ -258,7 +260,7 @@ class VerificationUI(QMainWindow):
         )
         
         # Reset authorization state
-        self.camera_public_key = None
+        #self.camera_public_key = None
         
     def select_image_file(self):
         """Open file dialog to select an image file."""
@@ -286,7 +288,13 @@ class VerificationUI(QMainWindow):
         """
         try:
             # Load and display image
-            image = Image.open(filepath)
+            if filepath.endswith("dng"):
+                with rawpy.imread(filepath) as raw:
+                    rgb = raw.postprocess()
+                    image = Image.fromarray(rgb)
+            else:
+                image = Image.open(filepath)
+
             pixmap = self.pil_to_qpixmap(image)
             
             # Scale to fit the display area while maintaining aspect ratio
@@ -303,7 +311,7 @@ class VerificationUI(QMainWindow):
                 "#721c24",
                 "#f8d7da"
             )
-            print(e)
+            print("error loading image", e)
         
         try:            
             image_hash = self.calculate_image_hash(filepath)
@@ -338,7 +346,7 @@ class VerificationUI(QMainWindow):
             
             # check for authentication image if unauthenticated
             if self.camera_public_key is None:
-                if self.attempt_authentication(filepath, public_key_pem):
+                if self.attempt_authentication(image, public_key_pem):
                     self.update_status(
                         f"✅ <b>Camera Authorized Successfully!</b><br><br>"
                         f"You can now verify images from this camera.",
@@ -355,7 +363,7 @@ class VerificationUI(QMainWindow):
                         "#fff3cd"
                     )
                     return
-                
+            print("already authenticated, checking signature")
             # tampering if image hash changed
             if image_hash != stored_image_hash:
                 self.update_status(
@@ -407,9 +415,9 @@ class VerificationUI(QMainWindow):
                 "#721c24",
                 "#f8d7da"
             )
-            print(e)
+            print("error verifying image", e)
     
-    def attempt_authentication(self, filepath, public_key):
+    def attempt_authentication(self, image: Image, public_key):
         """
         Attempt to authenticate a camera by verifying the QR code in the image.
         
@@ -420,7 +428,7 @@ class VerificationUI(QMainWindow):
         Returns:
             bool: True if authentication successful, False otherwise
         """
-        qr_detected = self.extract_qr_data(filepath)
+        qr_detected = self.extract_qr_data(image)
         
         if qr_detected and qr_detected == self.authentication_token:
             self.camera_public_key = public_key
@@ -428,7 +436,7 @@ class VerificationUI(QMainWindow):
         print(f"QR code detected: {qr_detected}, expected: {self.authentication_token}")
         return False
     
-    def extract_qr_data(self, filepath):
+    def extract_qr_data(self, image: Image):
         """
         Placeholder function to detect and decode QR code in an image.
         
@@ -438,7 +446,8 @@ class VerificationUI(QMainWindow):
         Returns:
             str: Decoded QR code content or None
         """
-        image = cv2.imread(filepath)
+        # convert image to cv2 format
+        image = np.array(image)[:, :, ::-1].copy()
 
         detector = cv2.QRCodeDetector()
         data, vertices_array, _ = detector.detectAndDecode(image)
@@ -469,7 +478,7 @@ class VerificationUI(QMainWindow):
         
         return None
     
-    def calculate_image_hash(self, filepath):
+    def calculate_image_hash(self, filepath: str):
         """
         Placeholder function to calculate cryptographic hash of an image.
         
@@ -481,7 +490,7 @@ class VerificationUI(QMainWindow):
         """
         image_hash = ""
         # open raw image to compute the hash of the image data
-        with rawpy.imread(f"{filepath}.dng") as raw:
+        with rawpy.imread(f"{filepath}") as raw:
             raw_data_from_file = raw.raw_image
             image_hash = hashlib.sha256(raw_data_from_file.tobytes()).hexdigest()
         return image_hash
@@ -498,38 +507,14 @@ class VerificationUI(QMainWindow):
             dict: Dictionary containing 'signature' and 'public_key'
         """
         try:
-            exiftool_command = [
-                "exiftool",
-                "-XMP-et:OriginalImageHash",
-                "-XMP-et:OriginalImageHashType",
-                "-UserComment",
-                "-j",
-                filepath
-            ]
-            
-            result = subprocess.run(
-                exiftool_command,
-                capture_output=True,
-                text=True,
-                check=True
-            )
-            
-            # ExifTool returns a JSON array of one object
-            exifdata = json.loads(result.stdout)
-            stored_hash = exifdata[0].get("OriginalImageHash", "")
-            hash_type = exifdata[0].get("OriginalImageHashType", "")
-            user_comment = exifdata[0].get("UserComment", "{}")
+            exifdata = exifread.process_file(open(filepath, 'rb'))
+            user_comment = str(exifdata.get("EXIF UserComment", "{}"))
             
             # Parse the UserComment JSON
             metadata = json.loads(user_comment)
-            metadata["image_hash"] = stored_hash
-            metadata["hash_type"] = hash_type
             
             return metadata
             
-        except subprocess.CalledProcessError as e:
-            print(f"ExifTool error: {e.stderr}")
-            return {}
         except json.JSONDecodeError as e:
             print(f"JSON parse error: {e}")
             return {}
@@ -618,7 +603,7 @@ class VerificationUI(QMainWindow):
         # Re-scale the current image/QR code if one is displayed
         if self.image_label.pixmap() and not self.image_label.pixmap().isNull():
             # If we're showing the QR code and not authorized yet, rescale it
-            if not self.is_camera_authorized and self.qr_pixmap:
+            if not self.camera_public_key and self.qr_pixmap:
                 scaled_pixmap = self.qr_pixmap.scaled(
                     self.image_label.size(),
                     Qt.KeepAspectRatio,
