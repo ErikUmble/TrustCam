@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QLineEdit, QTextEdit, QFileDialog, QSplitter
 )
-from PySide6.QtGui import QPixmap, QImage
+from PySide6.QtGui import QPixmap, QImage, QAction, QKeySequence
 from PySide6.QtCore import Qt, QSize, Signal
 
 from PIL import Image
@@ -80,15 +80,56 @@ class VerificationUI(QMainWindow):
         # Global state variables
         self.current_image_path = None
         self.authentication_token = None
-        self.camera_public_key = "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEvaDQZk2HOx9lPgz09rwkUM17YvX2\nz2OeAbeeYnks6CUAzBWBWdbSb9VJxGhWXUPZH+1guvbIonm0c0UJZLXtgA==\n-----END PUBLIC KEY-----\n" #None
+        self.camera_public_key = None
         self.qr_pixmap = None
         
         # Initialize UI
+        self.init_menu_bar()
+        self.init_status_bar()
         self.init_ui()
+
+        # Open in maximized (full screen) mode
+        #self.showMaximized()
         
         # Generate initial QR code
         self.generate_and_display_qr()
+
+    def init_menu_bar(self):
+        """Initialize the menu bar with File menu."""
+        menubar = self.menuBar()
+        
+        # File menu
+        file_menu = menubar.addMenu("&File")
+        
+        # Open action
+        open_action = QAction("&Open Image...", self)
+        open_action.setShortcut(QKeySequence.Open)  # Ctrl+O or Cmd+O
+        open_action.setStatusTip("Open an image file for verification")
+        open_action.triggered.connect(self.select_image_file)
+        file_menu.addAction(open_action)
+        
+        file_menu.addSeparator()
+        
+        # Regenerate QR action
+        regenerate_qr_action = QAction("&Regenerate QR Code", self)
+        regenerate_qr_action.setStatusTip("Generate a new authentication QR code")
+        regenerate_qr_action.triggered.connect(self.generate_and_display_qr)
+        file_menu.addAction(regenerate_qr_action)
+        
+        file_menu.addSeparator()
+        
+        # Exit action
+        exit_action = QAction("E&xit", self)
+        exit_action.setShortcut(QKeySequence.Quit)  # Ctrl+Q or Cmd+Q
+        exit_action.setStatusTip("Exit application")
+        exit_action.triggered.connect(self.close)
+        file_menu.addAction(exit_action)
     
+    def init_status_bar(self):
+        """Initialize the status bar at the bottom of the window."""
+        self.statusbar = self.statusBar()
+        self.statusbar.showMessage("No file loaded")
+
     def init_ui(self):
         """Initialize the user interface with all components."""
         # Create central widget and main layout
@@ -144,57 +185,14 @@ class VerificationUI(QMainWindow):
             }
         """)
         self.instructions_text.setHtml("""
-            <p><b>Step 1: Camera Authorization</b><br>
-            Scan the QR code displayed in the main area with your security camera to authorize it.</p>
-            <p><b>Step 2: Upload Authorization Image</b><br>
-            Drag and drop (or load) the signed image containing the QR code to register the camera's public key.</p>
+            <p><b>Step 1: Camera Authentication</b><br>
+            Scan the QR code displayed in the main area with your security camera.</p>
+            <p><b>Step 2: Upload Authentication Image</b><br>
+            Drag and drop (or File > Open Image) the image containing the QR code to authenticate the camera.</p>
             <p><b>Step 3: Verify Images</b><br>
-            Drag and drop (or load) any signed image from the authorized camera to verify its authenticity.</p>
+            Drag and drop (or File > Open Image) any .dng image to verify that it is from the authenticated camera.</p>
         """)
         right_layout.addWidget(self.instructions_text)
-        
-        # QR Code section
-        qr_label = QLabel("<b>Authorization QR Code</b>")
-        qr_label.setStyleSheet("font-size: 14px; color: #2196F3;")
-        right_layout.addWidget(qr_label)
-        
-        # Control panel section
-        control_label = QLabel("<b>Control Panel</b>")
-        control_label.setStyleSheet("font-size: 14px; color: #2196F3; margin-top: 10px;")
-        right_layout.addWidget(control_label)
-        
-        # File path display
-        self.file_path_input = QLineEdit()
-        self.file_path_input.setPlaceholderText("No file selected")
-        self.file_path_input.setReadOnly(True)
-        self.file_path_input.setStyleSheet("""
-            QLineEdit {
-                padding: 8px;
-                border: 1px solid #ccc;
-                border-radius: 4px;
-                background-color: #f9f9f9;
-            }
-        """)
-        right_layout.addWidget(self.file_path_input)
-        
-        # Select image button
-        select_btn = QPushButton("Select Image")
-        select_btn.clicked.connect(self.select_image_file)
-        select_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #2196F3;
-                color: white;
-                padding: 10px;
-                border: none;
-                border-radius: 4px;
-                font-weight: bold;
-                font-size: 13px;
-            }
-            QPushButton:hover {
-                background-color: #0b7dda;
-            }
-        """)
-        right_layout.addWidget(select_btn)
         
         # Status section
         status_label = QLabel("<b>Status</b>")
@@ -255,12 +253,12 @@ class VerificationUI(QMainWindow):
         
         # Update status
         self.update_status(
-            "Please scan QR code with your security camera and upload the picture of it to authenticate.",
+            "Please scan QR code with your security camera and submit the picture of it to authenticate.",
             "#856404"
         )
         
         # Reset authorization state
-        #self.camera_public_key = None
+        self.camera_public_key = None
         
     def select_image_file(self):
         """Open file dialog to select an image file."""
@@ -276,7 +274,7 @@ class VerificationUI(QMainWindow):
             
     def handle_chosen_image(self, file_path):
         self.current_image_path = file_path
-        self.file_path_input.setText(file_path)
+        self.statusbar.showMessage(file_path)
         self.load_image_and_verify(file_path)
     
     def load_image_and_verify(self, filepath):
@@ -287,7 +285,7 @@ class VerificationUI(QMainWindow):
             filepath: Path to the image file
         """
         try:
-            # Load and display image
+            # Load image
             if filepath.endswith("dng"):
                 with rawpy.imread(filepath) as raw:
                     rgb = raw.postprocess()
@@ -296,18 +294,19 @@ class VerificationUI(QMainWindow):
                 image = Image.open(filepath)
 
             pixmap = self.pil_to_qpixmap(image)
-            
-            # Scale to fit the display area while maintaining aspect ratio
-            scaled_pixmap = pixmap.scaled(
-                self.image_label.size(),
-                Qt.KeepAspectRatio,
-                Qt.SmoothTransformation
-            )
-            self.image_label.setPixmap(scaled_pixmap)
+
+            if not filepath.endswith("dng"):
+                self.update_status(
+                    "<b>Error: Verification requires a DNG (raw) file.</b><br><br>"
+                    "Please select a .dng file for verification.",
+                    "#721c24",
+                    "#f8d7da"
+                )
+                return
 
         except Exception as e:
             self.update_status(
-                f"❌ <b>Error loading image</b><br><br>",
+                f"<b>Error loading image</b><br><br>",
                 "#721c24",
                 "#f8d7da"
             )
@@ -348,26 +347,39 @@ class VerificationUI(QMainWindow):
             if self.camera_public_key is None:
                 if self.attempt_authentication(image, public_key_pem):
                     self.update_status(
-                        f"✅ <b>Camera Authorized Successfully!</b><br><br>"
+                        f"<b>Camera Authenticated Successfully!</b><br><br>"
                         f"You can now verify images from this camera.",
                         "#155724",
                         "#d4edda"
                     )
+                    # clear the image area to show QR code no longer needed
+                    self.image_label.setText("Drop image here or click 'Select Image'")
+                    self.image_label.setAlignment(Qt.AlignCenter)
                     return
                 else:
                     self.update_status(
-                        "❌ <b>Authorization Failed</b><br><br>"
+                        "<b>Authorization Failed</b><br><br>"
                         "The QR code was not found in this image. "
                         "Please ensure you captured the QR code displayed in the main area.",
                         "#856404",
                         "#fff3cd"
                     )
                     return
+                
+            # display the image once authentication is complete
+            # Scale to fit the display area while maintaining aspect ratio
+            scaled_pixmap = pixmap.scaled(
+                self.image_label.size(),
+                Qt.KeepAspectRatio,
+                Qt.SmoothTransformation
+            )
+            self.image_label.setPixmap(scaled_pixmap)
+
             print("already authenticated, checking signature")
             # tampering if image hash changed
             if image_hash != stored_image_hash:
                 self.update_status(
-                    f"❌ <b>Verification FAILED</b><br><br>"
+                    f"<b>Verification FAILED</b><br><br>"
                     f"This image may have been modified.",
                     "#721c24",
                     "#f8d7da"
@@ -377,7 +389,7 @@ class VerificationUI(QMainWindow):
             # unauthenticated or tampered camera if public key mismatch
             if public_key_pem != self.camera_public_key:
                 self.update_status(
-                    f"❌ <b>Verification FAILED</b><br><br>"
+                    f"<b>Verification FAILED</b><br><br>"
                     f"This image was not signed by the authenticated camera, or the camera has been tampered with since capturing this image.",
                     "#721c24",
                     "#f8d7da"
@@ -391,7 +403,7 @@ class VerificationUI(QMainWindow):
             # Display results
             if is_valid:
                 self.update_status(
-                    f"✅ <b>Verification SUCCESS</b><br><br>"
+                    f"<b>Verification SUCCESS</b><br><br>"
                     f"Signature: Valid ✓<br>"
                     f"Camera: Authorized ✓<br>"
                     f"This image is very likely captured by the authenticated camera.",
@@ -400,7 +412,7 @@ class VerificationUI(QMainWindow):
                 )
             else:
                 self.update_status(
-                    f"❌ <b>Verification FAILED</b><br><br>"
+                    f"<b>Verification FAILED</b><br><br>"
                     f"Image Hash: {image_hash}<br>"
                     f"Signature: Invalid ✗<br>"
                     f"Public Key: {public_key[:16]}...<br><br>"
@@ -411,7 +423,7 @@ class VerificationUI(QMainWindow):
             
         except Exception as e:
             self.update_status(
-                f"❌ <b>Error verifying image</b><br><br>",
+                f"<b>Error verifying image</b><br><br>",
                 "#721c24",
                 "#f8d7da"
             )
