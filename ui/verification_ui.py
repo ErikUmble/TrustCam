@@ -5,6 +5,7 @@ A complete PySide6 application for verifying signed images from security cameras
 """
 
 import json
+import math
 import sys
 import secrets
 from io import BytesIO
@@ -464,6 +465,9 @@ class VerificationUI(QMainWindow):
         detector = cv2.QRCodeDetector()
         data, vertices_array, _ = detector.detectAndDecode(image)
 
+        if data:
+            return data
+
         if vertices_array is None or len(vertices_array) == 0:
             # no QR code detected
             return None  
@@ -477,11 +481,11 @@ class VerificationUI(QMainWindow):
         # pad bounds by 10% to include white border
         y_pad = int((y_max - y_min) * 0.1)
         x_pad = int((x_max - x_min) * 0.1)
-        y_min = max(0, y_min - y_pad)
-        y_max = min(image.shape[0], y_max + y_pad)
-        x_min = max(0, x_min - x_pad)
-        x_max = min(image.shape[1], x_max + x_pad)
-
+        y_min = math.ceil(max(0, y_min - y_pad))
+        y_max = math.floor(min(image.shape[0], y_max + y_pad))
+        x_min = math.ceil(max(0, x_min - x_pad))
+        x_max = math.floor(min(image.shape[1], x_max + x_pad))
+        print(f"cropping to QR code area: y({y_min}:{y_max}), x({x_min}:{x_max})")
         image = image[y_min:y_max, x_min:x_max]
         #image = cv2.GaussianBlur(image, (25, 25), 0)  # apply Gaussian blur to remove noise from screen pixels
         data = pyzbar.decode(Image.fromarray(image))
