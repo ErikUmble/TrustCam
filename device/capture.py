@@ -20,12 +20,13 @@ from picamera2 import Picamera2
 import io
 import rawpy
 import os
+import libcamera
 
 
 class TrustCam:
     """System for capturing and signing images from Pi Camera."""
     
-    def __init__(self, output_dir="~/Pictures", key_dir="keys"):
+    def __init__(self, output_dir="~/Pictures", key_dir="keys", vflip=False, hflip=False):
         """
         Initialize the camera signing system.
         
@@ -47,6 +48,8 @@ class TrustCam:
             raw={"size": self.camera.sensor_resolution},  # Full sensor resolution for raw
             buffer_count=2
         )
+        if vflip or hflip:
+            self.capture_config["transform"] = libcamera.Transform(hflip=int(hflip), vflip=int(vflip))
 
         self.camera.configure(self.capture_config)
         self.camera.start()
@@ -196,7 +199,8 @@ class TrustCam:
                 "-XMP-et:OriginalImageHashType=SHA256",
                 f"-UserComment={json.dumps(metadata)}",
                 "-overwrite_original",
-                f"{filename_base}.dng"
+                f"{filename_base}.dng",
+                f"{filename_base}.jpg"
             ]
                         
             result = subprocess.run(
@@ -265,12 +269,25 @@ def main():
         help="Directory for cryptographic keys (default: keys)"
     )
 
+    parser.add_argument(
+        "--vflip",
+        action="store_true",
+        help="Vertically flip the captured images"
+    )
+    parser.add_argument(
+        "--hflip",
+        action="store_true",
+        help="Horizontally flip the captured images"
+    )
+
     
     args = parser.parse_args()
     
     system = TrustCam(
         output_dir=args.output_dir,
         key_dir=args.key_dir,
+        vflip=args.vflip,
+        hflip=args.hflip
     )
     
     system.run(interval=args.interval)

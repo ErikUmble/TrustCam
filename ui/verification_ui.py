@@ -296,14 +296,23 @@ class VerificationUI(QMainWindow):
 
             pixmap = self.pil_to_qpixmap(image)
 
+            # display image if authenticated
+            if self.camera_public_key:
+                scaled_pixmap = pixmap.scaled(
+                    self.image_label.size(),
+                    Qt.KeepAspectRatio,
+                    Qt.SmoothTransformation
+                )
+                self.image_label.setPixmap(scaled_pixmap)
+
             if not filepath.endswith("dng"):
                 self.update_status(
-                    "<b>Error: Verification requires a DNG (raw) file.</b><br><br>"
+                    "<b>Warning: Verification requires a DNG (raw) file.</b><br><br>"
                     "Please select a .dng file for verification.",
-                    "#721c24",
-                    "#f8d7da"
+                    "#856404",
+                    "#fff3cd"
                 )
-                return
+                #return
 
         except Exception as e:
             self.update_status(
@@ -366,15 +375,6 @@ class VerificationUI(QMainWindow):
                         "#fff3cd"
                     )
                     return
-                
-            # display the image once authentication is complete
-            # Scale to fit the display area while maintaining aspect ratio
-            scaled_pixmap = pixmap.scaled(
-                self.image_label.size(),
-                Qt.KeepAspectRatio,
-                Qt.SmoothTransformation
-            )
-            self.image_label.setPixmap(scaled_pixmap)
 
             print("already authenticated, checking signature")
             # tampering if image hash changed
@@ -496,19 +496,23 @@ class VerificationUI(QMainWindow):
     
     def calculate_image_hash(self, filepath: str):
         """
-        Placeholder function to calculate cryptographic hash of an image.
+        Function to calculate cryptographic hash of an image.
         
         Args:
             filepath: Path to the image file
             
         Returns:
-            str: Simulated hash string
+            str: hash string
         """
         image_hash = ""
         # open raw image to compute the hash of the image data
-        with rawpy.imread(f"{filepath}") as raw:
-            raw_data_from_file = raw.raw_image
-            image_hash = hashlib.sha256(raw_data_from_file.tobytes()).hexdigest()
+        if filepath.endswith("dng"):
+            with rawpy.imread(f"{filepath}") as raw:
+                raw_data_from_file = raw.raw_image
+                image_hash = hashlib.sha256(raw_data_from_file.tobytes()).hexdigest()
+        else:
+            image = cv2.imread(filepath, cv2.IMREAD_UNCHANGED)
+            image_hash = hashlib.sha256(image.tobytes()).hexdigest()
         return image_hash
             
     
