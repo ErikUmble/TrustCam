@@ -353,8 +353,26 @@ class VerificationUI(QMainWindow):
                 )
                 return
             
+            # tampering if image hash changed
+            if image_hash != stored_image_hash:
+                self.update_status(
+                    f"<b>Verification FAILED</b><br><br>"
+                    f"This image may have been modified.",
+                    "#721c24",
+                    "#f8d7da"
+                )
+                return
+            
             # check for authentication image if unauthenticated
             if self.camera_public_key is None:
+                if not self.verify_signature(image_hash, signature, public_key):
+                    self.update_status(
+                        f"<b>Authentication FAILED</b><br><br>"
+                        f"The signature on this image is invalid.",
+                        "#721c24",
+                        "#f8d7da"
+                    )
+                    return
                 if self.attempt_authentication(image, public_key_pem):
                     self.update_status(
                         f"<b>Camera Authenticated Successfully!</b><br><br>"
@@ -377,15 +395,7 @@ class VerificationUI(QMainWindow):
                     return
 
             print("already authenticated, checking signature")
-            # tampering if image hash changed
-            if image_hash != stored_image_hash:
-                self.update_status(
-                    f"<b>Verification FAILED</b><br><br>"
-                    f"This image may have been modified.",
-                    "#721c24",
-                    "#f8d7da"
-                )
-                return
+            
             
             # unauthenticated or tampered camera if public key mismatch
             if public_key_pem != self.camera_public_key:
